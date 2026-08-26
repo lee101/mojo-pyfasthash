@@ -48,7 +48,9 @@ def cpu_name():
 
 
 def main():
-    data = bytes(range(256)) * 8192
+    input_mib = int(os.environ.get("PYFASTHASH_BENCH_MIB", "2"))
+    selected = set(filter(None, os.environ.get("PYFASTHASH_BENCH_KERNELS", "").split(",")))
+    data = bytes(range(256)) * (input_mib * 4096)
     mib = len(data) / (1024 * 1024)
     print(f"Machine: {cpu_name()} ({platform.machine()}, Python {platform.python_version()})")
     print(f"Input: {mib:.1f} MiB deterministic byte buffer; best of 3 runs")
@@ -56,6 +58,8 @@ def main():
     print("| kernel | Mojo | pure Python reference | speedup |")
     print("|---|---:|---:|---:|")
     for name, reference in CASES:
+        if selected and name not in selected:
+            continue
         hasher = getattr(pyhash, name)()
         mojo_s = best_time(lambda: hasher(data))
         ref_s = best_time(lambda: reference(data))

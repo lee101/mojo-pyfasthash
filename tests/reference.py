@@ -69,8 +69,6 @@ def xx32(data, seed=0):
             v3, v4 = round_(v3, int.from_bytes(data[i + 8:i + 12], "little")), round_(v4, int.from_bytes(data[i + 12:i + 16], "little"))
             i += 16
         h = (_rot32(v1, 1) + _rot32(v2, 7) + _rot32(v3, 12) + _rot32(v4, 18)) & MASK32
-        for value in (v1, v2, v3, v4):
-            h = ((h ^ round_(0, value)) * p1 + p4) & MASK32
     else:
         h = (seed + p5) & MASK32
     h = (h + len(data)) & MASK32

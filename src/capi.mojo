@@ -1,5 +1,8 @@
 """Non-cryptographic byte hashes exposed through a small C ABI."""
 
+from max.algorithm import parallelize
+from std.memory import stack_allocation
+
 comptime BytePtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
 comptime U64Ptr = UnsafePointer[UInt64, AnyOrigin[mut=True]]
 
@@ -17,7 +20,7 @@ def read32(p: BytePtr, i: Int) -> UInt32:
 
 
 def read64(p: BytePtr, i: Int) -> UInt64:
-    return UInt64(p[i]) | (UInt64(p[i + 1]) << 8) | (UInt64(p[i + 2]) << 16) | (UInt64(p[i + 3]) << 24) | (UInt64(p[i + 4]) << 32) | (UInt64(p[i + 5]) << 40) | (UInt64(p[i + 6]) << 48) | (UInt64(p[i + 7]) << 56)
+    return (p + i).bitcast[UInt64]().load[alignment=1]()
 
 
 def rotl32(x: UInt32, n: Int) -> UInt32:
@@ -203,13 +206,51 @@ def xx32_impl(p: BytePtr, n: Int, seed: UInt32) -> UInt32:
             v4 = xx32_round(v4, read32(p, i + 12))
             i += 16
         h = rotl32(v1, 1) + rotl32(v2, 7) + rotl32(v3, 12) + rotl32(v4, 18)
-        h = xx32_merge(h, v1)
-        h = xx32_merge(h, v2)
-        h = xx32_merge(h, v3)
-        h = xx32_merge(h, v4)
     else:
         h = seed + UInt32(0x165667B1)
     h += UInt32(n)
+    while i + 4 <= n:
+        h += read32(p, i) * UInt32(0xC2B2AE3D)
+        h = rotl32(h, 17) * UInt32(0x27D4EB2F)
+        i += 4
+    while i < n:
+        h += UInt32(p[i]) * UInt32(0x165667B1)
+        h = rotl32(h, 11) * UInt32(0x9E3779B1)
+        i += 1
+    h ^= h >> 15
+    h *= UInt32(0x85EBCA77)
+    h ^= h >> 13
+    h *= UInt32(0xC2B2AE3D)
+    h ^= h >> 16
+    return h
+
+
+def xx32_parallel_impl(p: BytePtr, n: Int, seed: UInt32) -> UInt32:
+    var lane_ptr = stack_allocation[4, UInt32]()
+    lane_ptr[0] = seed + UInt32(0x9E3779B1) + UInt32(0x85EBCA77)
+    lane_ptr[1] = seed + UInt32(0x85EBCA77)
+    lane_ptr[2] = seed
+    lane_ptr[3] = seed - UInt32(0x9E3779B1)
+    var block_end = n - n % 16
+
+    @parameter
+    def process_lane(lane: Int):
+        var acc = lane_ptr[lane]
+        var offset = lane * 4
+        while offset < block_end:
+            acc = xx32_round(acc, read32(p, offset))
+            offset += 16
+        lane_ptr[lane] = acc
+
+    parallelize[process_lane](4, 4)
+    var h = (
+        rotl32(lane_ptr[0], 1)
+        + rotl32(lane_ptr[1], 7)
+        + rotl32(lane_ptr[2], 12)
+        + rotl32(lane_ptr[3], 18)
+        + UInt32(n)
+    )
+    var i = block_end
     while i + 4 <= n:
         h += read32(p, i) * UInt32(0xC2B2AE3D)
         h = rotl32(h, 17) * UInt32(0x27D4EB2F)
@@ -312,7 +353,10 @@ def mph_murmur3_32(addr: Int, n: Int, seed: Int, result: Int) abi("C"):
 
 @export("mph_xx_32")
 def mph_xx_32(addr: Int, n: Int, seed: Int, result: Int) abi("C"):
-    output_at(result)[0] = UInt64(xx32_impl(bytes_at(addr), n, UInt32(seed)))
+    if n >= 32 * 1024 * 1024:
+        output_at(result)[0] = UInt64(xx32_parallel_impl(bytes_at(addr), n, UInt32(seed)))
+    else:
+        output_at(result)[0] = UInt64(xx32_impl(bytes_at(addr), n, UInt32(seed)))
 
 
 @export("mph_xx_64")

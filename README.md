@@ -55,21 +55,48 @@ implementation used by the parity suite; these are not claims against upstream
 
 | kernel | Mojo | pure Python reference | speedup |
 |---|---:|---:|---:|
-| fnv1_32 | 2.95 ms | 302.23 ms | 102.48x |
-| fnv1a_32 | 3.05 ms | 303.05 ms | 99.27x |
-| fnv1_64 | 3.11 ms | 328.25 ms | 105.67x |
-| fnv1a_64 | 3.04 ms | 330.94 ms | 108.71x |
-| murmur2_32 | 0.76 ms | 447.13 ms | 586.92x |
-| murmur3_32 | 0.97 ms | 629.54 ms | 650.91x |
-| xx_32 | 0.39 ms | 441.08 ms | 1120.01x |
-| xx_64 | 0.20 ms | 228.06 ms | 1166.75x |
+| fnv1_32 | 3.11 ms | 307.58 ms | 98.79x |
+| fnv1a_32 | 2.93 ms | 299.24 ms | 102.17x |
+| fnv1_64 | 3.29 ms | 317.99 ms | 96.76x |
+| fnv1a_64 | 3.07 ms | 309.20 ms | 100.86x |
+| murmur2_32 | 0.71 ms | 422.49 ms | 594.60x |
+| murmur3_32 | 0.82 ms | 613.18 ms | 751.41x |
+| xx_32 | 0.61 ms | 441.49 ms | 724.21x |
+| xx_64 | 0.18 ms | 215.12 ms | 1220.50x |
+
+For target selection, upstream `pyhash` 0.9.4 was also built from its current
+source with its hash kernels unchanged and measured under the same lock. The
+Python 3.13 build used a current pybind11 and disabled unrelated 128-bit
+bindings. These results are best of seven calls on the same 2 MiB input:
+
+| kernel | Mojo | upstream pyhash | Mojo / upstream |
+|---|---:|---:|---:|
+| fnv1_32 | 3.74 ms | 5.71 ms | 1.52x |
+| fnv1a_32 | 3.07 ms | 4.71 ms | 1.53x |
+| fnv1_64 | 2.78 ms | 5.26 ms | 1.89x |
+| fnv1a_64 | 2.92 ms | 5.17 ms | 1.77x |
+| murmur2_32 | 0.72 ms | 0.77 ms | 1.08x |
+| murmur3_32 | 0.76 ms | 0.88 ms | 1.15x |
+| xx_32 | 0.66 ms | 0.33 ms | 0.50x |
+| xx_64 | 0.19 ms | 0.17 ms | 0.87x |
+
+The original long-input XXH32 path included XXH64-style merge rounds and did
+not match upstream. Removing them restores parity; the table reports the
+corrected kernel rather than the faster wrong result. Mojo lowers the four
+XXH32 recurrence lanes to packed SIMD on this AVX2 host. A hand-written Mojo
+SIMD version was measured and removed because it was slower. For inputs at
+least 32 MiB, the four independent XXH32 lanes run through `parallelize`; at
+32 MiB this reduced the locked measurement from 14.88 ms serial to 11.99 ms
+parallel. Smaller inputs stay serial to avoid thread scheduling overhead.
 
 Run the benchmark through Pixi only: its task takes a machine-wide lock so
 other repository jobs cannot distort the measurements.
 
-GPU execution is intentionally not provided. Each supported API call produces
-one ordered digest, so its accumulator dependency prevents useful data-parallel
-work; host-device transfer and reduction would lose to the CPU kernels.
+GPU execution is intentionally not provided. These kernels perform only a few
+integer operations per 4 or 8 bytes loaded, below the arithmetic-intensity
+threshold where device transfer can pay off. Most also have an ordered
+accumulator dependency; the four independent XXH32 lanes are already cheaper
+to run on CPU threads for genuinely large inputs.
 
 ## How it works
 

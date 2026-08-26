@@ -99,6 +99,38 @@ def test_staged_murmur_blocks_match_reference_at_tails(name, tail):
     assert getattr(pyhash, name)(seed)(data) == REFERENCE[name](data, seed)
 
 
+@pytest.mark.parametrize("name", ("murmur2_32", "murmur3_32", "xx_32", "xx_64"))
+@pytest.mark.parametrize("length", (15, 16, 17, 31, 32, 33, 63, 64, 65))
+def test_word_loop_boundaries_and_unaligned_tails(name, length):
+    backing = bytearray(range(length + 1))
+    data = memoryview(backing)[1:]
+    seed = 0x12345678
+    assert getattr(pyhash, name)(seed)(data) == REFERENCE[name](data, seed)
+
+
+@pytest.mark.parametrize(
+    "length, expected",
+    (
+        (15, 1070822502),
+        (16, 2672565993),
+        (17, 3096662848),
+        (31, 4097334608),
+        (32, 3183402826),
+        (33, 3789564615),
+        (63, 1473379930),
+        (64, 1662533714),
+        (65, 2194161156),
+    ),
+)
+def test_xx32_long_input_matches_upstream(length, expected):
+    assert pyhash.xx_32(0x12345678)(bytes(range(length))) == expected
+
+
+def test_xx32_parallel_threshold_matches_upstream():
+    data = bytes(range(256)) * (32 * 4096)
+    assert pyhash.xx_32(0x12345678)(data) == 4095641633
+
+
 def test_public_api_contains_only_implemented_hashers():
     assert set(pyhash.__hasher__) == set(REFERENCE)
     assert pyhash.build_with_int128 is False
