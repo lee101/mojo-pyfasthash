@@ -126,7 +126,7 @@ def test_xx32_long_input_matches_upstream(length, expected):
     assert pyhash.xx_32(0x12345678)(bytes(range(length))) == expected
 
 
-def test_xx32_parallel_threshold_matches_upstream():
+def test_xx32_large_input_matches_upstream():
     data = bytes(range(256)) * (32 * 4096)
     assert pyhash.xx_32(0x12345678)(data) == 4095641633
 

@@ -1,8 +1,5 @@
 """Non-cryptographic byte hashes exposed through a small C ABI."""
 
-from max.algorithm import parallelize
-from std.memory import stack_allocation
-
 comptime BytePtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
 comptime U64Ptr = UnsafePointer[UInt64, AnyOrigin[mut=True]]
 
@@ -225,46 +222,6 @@ def xx32_impl(p: BytePtr, n: Int, seed: UInt32) -> UInt32:
     return h
 
 
-def xx32_parallel_impl(p: BytePtr, n: Int, seed: UInt32) -> UInt32:
-    var lane_ptr = stack_allocation[4, UInt32]()
-    lane_ptr[0] = seed + UInt32(0x9E3779B1) + UInt32(0x85EBCA77)
-    lane_ptr[1] = seed + UInt32(0x85EBCA77)
-    lane_ptr[2] = seed
-    lane_ptr[3] = seed - UInt32(0x9E3779B1)
-    var block_end = n - n % 16
-
-    @parameter
-    def process_lane(lane: Int):
-        var acc = lane_ptr[lane]
-        var offset = lane * 4
-        while offset < block_end:
-            acc = xx32_round(acc, read32(p, offset))
-            offset += 16
-        lane_ptr[lane] = acc
-
-    parallelize[process_lane](4, 4)
-    var h = (
-        rotl32(lane_ptr[0], 1)
-        + rotl32(lane_ptr[1], 7)
-        + rotl32(lane_ptr[2], 12)
-        + rotl32(lane_ptr[3], 18)
-        + UInt32(n)
-    )
-    var i = block_end
-    while i + 4 <= n:
-        h += read32(p, i) * UInt32(0xC2B2AE3D)
-        h = rotl32(h, 17) * UInt32(0x27D4EB2F)
-        i += 4
-    while i < n:
-        h += UInt32(p[i]) * UInt32(0x165667B1)
-        h = rotl32(h, 11) * UInt32(0x9E3779B1)
-        i += 1
-    h ^= h >> 15
-    h *= UInt32(0x85EBCA77)
-    h ^= h >> 13
-    h *= UInt32(0xC2B2AE3D)
-    h ^= h >> 16
-    return h
 
 
 def xx64_round(acc: UInt64, input: UInt64) -> UInt64:
@@ -353,10 +310,7 @@ def mph_murmur3_32(addr: Int, n: Int, seed: Int, result: Int) abi("C"):
 
 @export("mph_xx_32")
 def mph_xx_32(addr: Int, n: Int, seed: Int, result: Int) abi("C"):
-    if n >= 32 * 1024 * 1024:
-        output_at(result)[0] = UInt64(xx32_parallel_impl(bytes_at(addr), n, UInt32(seed)))
-    else:
-        output_at(result)[0] = UInt64(xx32_impl(bytes_at(addr), n, UInt32(seed)))
+    output_at(result)[0] = UInt64(xx32_impl(bytes_at(addr), n, UInt32(seed)))
 
 
 @export("mph_xx_64")
